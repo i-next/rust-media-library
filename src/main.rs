@@ -15,7 +15,6 @@ fn main() {
 
     let medias = scan_folder("C:\\Users\\euchi\\Pictures");
     let app_state = app_state::AppState { pool: pool.clone() };
-    println!("{} médias trouvés", medias.len());
 
     rt.block_on(async {
         for media in &medias {

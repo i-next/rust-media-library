@@ -1,8 +1,8 @@
 use crate::models::media::MediaFile;
 use anyhow::Result;
+use base64::{Engine as _, engine::general_purpose};
 use sqlx::{SqlitePool, migrate::Migrator, sqlite::SqlitePoolOptions};
 use std::fs;
-use base64::{engine::general_purpose, Engine as _};
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
@@ -43,15 +43,23 @@ pub async fn insert_media(pool: &SqlitePool, media: &MediaFile) -> Result<()> {
             path,
             filename,
             extension,
-            media_type
+            media_type,
+            file_size,
+            width,
+            height,
+            duration
         )
-        VALUES (?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?,?)
         "#,
     )
     .bind(&media.path)
     .bind(&media.filename)
     .bind(&media.extension)
     .bind(&media.media_type)
+    .bind(media.file_size.map(|v| v as i64))
+    .bind(media.width.map(|v| v as i64))
+    .bind(media.height.map(|v| v as i64))
+    .bind(media.duration)
     .execute(pool)
     .await?;
 
@@ -64,65 +72,76 @@ pub async fn media_count(pool: &SqlitePool) -> Result<i64> {
 
     Ok(count)
 }
-pub async fn get_all_media(
-    pool: &SqlitePool,
-) -> Result<Vec<MediaFile>> {
-    let rows = sqlx::query_as::<_, (
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-    )>(
+pub async fn get_all_media(pool: &SqlitePool) -> Result<Vec<MediaFile>> {
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<f64>,
+        ),
+    >(
         r#"
         SELECT
             path,
             filename,
             extension,
             media_type,
-            thumbnail_path
+            thumbnail_path,
+            file_size,
+            width,
+            height,
+            duration
         FROM media
         ORDER BY filename
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await?;
 
     let current_dir = std::env::current_dir()?;
 
-    Ok(
-        rows.into_iter()
-            .map(|r| {
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let thumbnail_path =
+                r.4.map(|thumb| current_dir.join(thumb).to_string_lossy().to_string());
 
-                let thumbnail_path = r.4.map(|thumb| {
-                    current_dir
-                        .join(thumb)
-                        .to_string_lossy()
-                        .to_string()
-                });
+            let thumbnail_data = thumbnail_path.as_ref().and_then(|path| {
+                fs::read(path).ok().map(|bytes| {
+                    format!(
+                        "data:image/jpeg;base64,{}",
+                        general_purpose::STANDARD.encode(bytes)
+                    )
+                })
+            });
 
-                let thumbnail_data = thumbnail_path
-                    .as_ref()
-                    .and_then(|path| {
-                        fs::read(path).ok().map(|bytes| {
-                            format!(
-                                "data:image/jpeg;base64,{}",
-                                general_purpose::STANDARD.encode(bytes)
-                            )
-                        })
-                    });
+            MediaFile {
+                path: r.0,
+                filename: r.1,
+                extension: r.2,
+                media_type: r.3,
 
-                MediaFile {
-                    path: r.0,
-                    filename: r.1,
-                    extension: r.2,
-                    media_type: r.3,
-                    thumbnail_path,
-                    thumbnail_data,
-                }
-            })
-            .collect()
-    )
+                thumbnail_path,
+
+                thumbnail_data,
+
+                file_size: r.5.map(|v| v as u64),
+
+                width: r.6.map(|v| v as u32),
+
+                height: r.7.map(|v| v as u32),
+
+                duration: r.8,
+            }
+        })
+        .collect())
 }
 
 pub async fn update_thumbnail(
