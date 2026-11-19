@@ -13,6 +13,8 @@ const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"];
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi", "mov", "wmv", "webm"];
 
 pub fn scan_folder(folder: &str) -> Vec<MediaFile> {
+    println!("Scan du dossier : {}", folder);
+
     let mut medias = Vec::new();
 
     for entry in WalkDir::new(folder)
@@ -20,6 +22,8 @@ pub fn scan_folder(folder: &str) -> Vec<MediaFile> {
         .into_iter()
         .filter_map(Result::ok)
     {
+        println!("{}", entry.path().display());
+
         let path = entry.path();
 
         if !path.is_file() {
@@ -30,6 +34,8 @@ pub fn scan_folder(folder: &str) -> Vec<MediaFile> {
             medias.push(media);
         }
     }
+
+    println!("{} médias trouvés", medias.len());
 
     medias
 }

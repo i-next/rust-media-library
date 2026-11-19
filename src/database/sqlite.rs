@@ -163,3 +163,32 @@ pub async fn update_thumbnail(
 
     Ok(())
 }
+pub async fn delete_missing_media(
+    pool: &SqlitePool,
+) -> anyhow::Result<u64> {
+
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT path FROM media"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut deleted = 0;
+
+    for path in rows {
+
+        if !std::path::Path::new(&path).exists() {
+
+            let result = sqlx::query(
+                "DELETE FROM media WHERE path = ?"
+            )
+            .bind(&path)
+            .execute(pool)
+            .await?;
+
+            deleted += result.rows_affected();
+        }
+    }
+
+    Ok(deleted)
+}

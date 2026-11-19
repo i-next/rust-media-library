@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::services::library_service;
 use crate::{app_state::AppState, database::sqlite};
-
 fn format_file_size(size: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;
@@ -41,9 +41,18 @@ pub fn App() -> Element {
     use crate::models::media::MediaFile;
 
     let mut selected_media = use_signal(|| None::<MediaFile>);
+    let pool = state.pool.clone();
+    let mut refresh_counter = use_signal(|| 0u64);
+    let scan_progress =
+    use_signal(|| (0usize, 0usize));
 
+    let mut is_scanning = use_signal(|| false);
+    let pool_for_reload = pool.clone();
+    let pool_for_rescan = pool.clone();
     let medias = use_resource(move || {
-        let pool = state.pool.clone();
+        let pool = pool_for_reload.clone();
+
+        let _refresh = refresh_counter();
 
         async move { sqlite::get_all_media(&pool).await.unwrap_or_default() }
     });
@@ -51,36 +60,117 @@ pub fn App() -> Element {
     let selected = selected_media();
 
     rsx! {
-                div {
-                    style: "display:flex; height:100vh;",
-
-                    // Galerie
                     div {
-                        style: "
-                    flex:1;
-                    overflow:auto;
-                    padding:16px;
-                ",
+                        style: "display:flex; height:100vh;",
 
-                        h1 { "Rust Media Library" }
+                        // Galerie
+                        div {
+                            style: "
+                            flex:1;
+                            overflow:auto;
+                            padding:16px;
+                        ",
 
-                        p { "Médias présents dans SQLite :" }
-
-                        if let Some(list) = &*medias.read_unchecked() {
-
-                            div {
+                            h1 { "Rust Media Library" }
+                            button {
                                 style: "
+                                    padding:10px;
+                                    margin-bottom:16px;
+                                    cursor:pointer;
+                                ",
+
+                                onclick: {
+                                    let pool = pool_for_rescan.clone();
+
+                                    let mut refresh_handle = refresh_counter;
+                                    let mut progress_handle = scan_progress;
+                                    let mut scan_handle = is_scanning;
+
+                                    move |_| {
+
+                                        scan_handle.set(true);
+                                        progress_handle.set((0, 1));
+
+                                        let pool = pool.clone();
+
+                                        spawn(async move {
+
+                                            let result =
+                                                library_service::rescan_library(
+                                                    &pool,
+                                                    "C:\\Users\\euchi\\Pictures",
+                                                    move |current, total| {
+
+                                                        progress_handle
+                                                            .set((current, total));
+                                                    }
+                                                )
+                                                .await;
+
+                                            if let Err(e) = result {
+                                                eprintln!(
+                                                    "Erreur rescan : {}",
+                                                    e
+                                                );
+                                            }
+
+                                            scan_handle.set(false);
+
+                                            refresh_handle += 1;
+                                        });
+                                    }
+                                },
+
+                                "🔄 Rescanner"
+                            }
+
+                            if is_scanning() {
+
+                                div {
+                                    style: "
+                                        margin-top:10px;
+                                        margin-bottom:20px;
+                                        padding:10px;
+                                        border:1px solid #ccc;
+                                        border-radius:8px;
+                                    ",
+
+                                    p {
+                                        "🔄 Scan en cours..."
+                                    }
+
+                                    p {
+                                        "{scan_progress().0} / {scan_progress().1}"
+                                    }
+
+                                    progress {
+                                        max: "{scan_progress().1}",
+                                        value: "{scan_progress().0}",
+
+                                        style: "
+                                            width:100%;
+                                            height:20px;
+                                        ",
+                                    }
+                                }
+                            }
+                            p { "Médias présents dans SQLite :" }
+
+                            if let Some(list) = &*medias.read_unchecked() {
+
+                                div {
+                                    style: "
                             display:flex;
                             flex-wrap:wrap;
                             gap:16px;
                         ",
 
-                                for media in list.iter() {
+                                    for media in list.iter() {
 
-                                    div {
-                                        key: "{media.path}",
+                                        div {
+                                            key: "{media.path}",
 
-                                        style: "
+                                            style: "
                                     width:220px;
                                     border:1px solid #444;
                                     border-radius:8px;
@@ -89,29 +179,35 @@ pub fn App() -> Element {
                                     background:#f5f5f5;
                                 ",
 
-                                        onclick: {
-                                            let media_clone = media.clone();
+                                            onclick: {
+                                                let media_clone = media.clone();
 
-                                            move |_| {
-                                                selected_media.set(Some(media_clone.clone()));
-                                            }
-                                        },
+                                                move |_| {
+                                                    selected_media.set(Some(media_clone.clone()));
+                                                }
+                                            },
+                                            ondoubleclick: {
+                                                let path = media.path.clone();
 
-                                        if let Some(data_uri) = &media.thumbnail_data {
+                                                move |_| {
+                                                    let _ = open::that(path.clone());
+                                                }
+                                            },
+                                            if let Some(data_uri) = &media.thumbnail_data {
 
-                                            img {
-                                                src: "{data_uri}",
-                                                style: "
+                                                img {
+                                                    src: "{data_uri}",
+                                                    style: "
                                             width:100%;
                                             height:180px;
                                             object-fit:cover;
                                         ",
-                                            }
+                                                }
 
-                                        } else {
+                                            } else {
 
-                                            div {
-                                                style: "
+                                                div {
+                                                    style: "
                                             height:180px;
                                             display:flex;
                                             align-items:center;
@@ -120,154 +216,154 @@ pub fn App() -> Element {
                                             font-size:48px;
                                         ",
 
-                                                if media.media_type == "image" {
-                                                    "🖼️"
-                                                } else {
-                                                    "🎬"
+                                                    if media.media_type == "image" {
+                                                        "🖼️"
+                                                    } else {
+                                                        "🎬"
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        div {
-                                            style: "padding:8px;",
+                                            div {
+                                                style: "padding:8px;",
 
-                                            p {
-                                                style: "
+                                                p {
+                                                    style: "
                                             margin:0;
                                             font-size:12px;
                                             word-break:break-word;
                                         ",
 
-                                                "{media.filename}"
+                                                    "{media.filename}"
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                        } else {
+                            } else {
 
-                            p {
-                                "Chargement..."
+                                p {
+                                    "Chargement..."
+                                }
                             }
                         }
-                    }
 
-                    // Panneau de détails
-                    div {
-                        style: "
+                        // Panneau de détails
+                        div {
+                            style: "
                     width:350px;
                     padding:16px;
                     border-left:1px solid #444;
                     overflow:auto;
                 ",
 
-                        h2 {
-                            "Détails"
-                        }
+                            h2 {
+                                "Détails"
+                            }
 
-                        if let Some(media) = selected {
+                            if let Some(media) = selected {
 
-            h3 {
-                "{media.filename}"
-            }
-
-            hr {}
-
-            p {
-                strong { "Type :" }
-                " "
-                "{media.media_type}"
-            }
-
-            p {
-                strong { "Extension :" }
-                " "
-                "{media.extension}"
-            }
-
-            p {
-                strong { "Taille :" }
-                " "
-
-                if let Some(size) = media.file_size {
-                     "{format_file_size(size)}"
-                } else {
-                    "Inconnue"
+                h3 {
+                    "{media.filename}"
                 }
-            }
 
-            p {
-                strong { "Dimensions :" }
-                " "
+                hr {}
 
-                if let (Some(w), Some(h)) =
-                    (media.width, media.height)
-                {
-                    "{w} × {h}"
-                } else {
-                    "-"
+                p {
+                    strong { "Type :" }
+                    " "
+                    "{media.media_type}"
                 }
-            }
 
-            p {
-                strong { "Chemin :" }
-            }
+                p {
+                    strong { "Extension :" }
+                    " "
+                    "{media.extension}"
+                }
 
-            p {
-                style: "
+                p {
+                    strong { "Taille :" }
+                    " "
+
+                    if let Some(size) = media.file_size {
+                         "{format_file_size(size)}"
+                    } else {
+                        "Inconnue"
+                    }
+                }
+
+                p {
+                    strong { "Dimensions :" }
+                    " "
+
+                    if let (Some(w), Some(h)) =
+                        (media.width, media.height)
+                    {
+                        "{w} × {h}"
+                    } else {
+                        "-"
+                    }
+                }
+
+                p {
+                    strong { "Chemin :" }
+                }
+
+                p {
+                    style: "
             word-break:break-all;
             font-size:12px;
         ",
 
-                "{media.path}"
-            }
-
-            p {
-                strong { "Miniature générée :" }
-                " "
-                if media.thumbnail_data.is_some() {
-                    "Oui"
-                } else {
-                    "Non"
+                    "{media.path}"
                 }
-            }
 
-            if let Some(data_uri) = &media.thumbnail_data {
+                p {
+                    strong { "Miniature générée :" }
+                    " "
+                    if media.thumbnail_data.is_some() {
+                        "Oui"
+                    } else {
+                        "Non"
+                    }
+                }
 
-                img {
-                    src: "{data_uri}",
+                if let Some(data_uri) = &media.thumbnail_data {
 
-                    style: "
+                    img {
+                        src: "{data_uri}",
+
+                        style: "
                 width:100%;
                 border:1px solid #ccc;
                 border-radius:8px;
                 margin-top:16px;
             ",
-                }
-            }
-
-            if media.media_type == "video" {
-
-        p {
-            strong { "Durée :" }
-            " "
-
-            if let Some(duration) = media.duration {
-                "{format_duration(duration)}"
-            } else {
-                "Inconnue"
-            }
-        }
-    }
-
-        } else {
-
-            p {
-                "Sélectionne une miniature."
-            }
-        }
                     }
                 }
+
+                if media.media_type == "video" {
+
+            p {
+                strong { "Durée :" }
+                " "
+
+                if let Some(duration) = media.duration {
+                    "{format_duration(duration)}"
+                } else {
+                    "Inconnue"
+                }
             }
+        }
+
+            } else {
+
+                p {
+                    "Sélectionne une miniature."
+                }
+            }
+                        }
+                    }
+                }
 }
