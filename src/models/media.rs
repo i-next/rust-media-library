@@ -13,4 +13,6 @@ pub struct MediaFile {
     pub height: Option<u32>,
 
     pub duration: Option<f64>,
+    pub favorite: bool,
+
 }

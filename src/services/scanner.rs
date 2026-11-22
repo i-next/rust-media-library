@@ -90,6 +90,7 @@ fn create_media(path: &Path) -> Option<MediaFile> {
         height,
 
         duration,
+        favorite: false,
     })
 }
 fn get_video_duration(path: &Path) -> Option<f64> {

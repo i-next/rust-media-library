@@ -42,41 +42,35 @@ pub async fn rescan_library(
             }
         }
         if media.media_type == "video" {
-
-            match crate::services::video_thumbnails
-                ::generate_video_thumbnail(
-                    &media.path
-                )
-            {
+            match crate::services::video_thumbnails::generate_video_thumbnail(&media.path) {
                 Ok(thumbnail_path) => {
-
-                    sqlite::update_thumbnail(
-                        pool,
-                        &media.path,
-                        &thumbnail_path,
-                    )
-                    .await?;
+                    sqlite::update_thumbnail(pool, &media.path, &thumbnail_path).await?;
                 }
 
                 Err(e) => {
-                    eprintln!(
-                        "Erreur miniature vidéo {} : {}",
-                        media.filename,
-                        e
-                    );
+                    eprintln!("Erreur miniature vidéo {} : {}", media.filename, e);
                 }
             }
         }
     }
-    let deleted =
-    sqlite::delete_missing_media(pool)
-        .await?;
+    let deleted = sqlite::delete_missing_media(pool).await?;
 
-    println!(
-        "{} fichiers supprimés de l'index",
-        deleted
-    );
+    println!("{} fichiers supprimés de l'index", deleted);
     println!("Scan terminé");
+
+    Ok(())
+}
+pub async fn rescan_all_folders(
+    pool: &SqlitePool,
+    mut on_progress: impl FnMut(usize, usize),
+) -> Result<()> {
+    let folders = sqlite::get_folders(pool).await?;
+
+    for folder in folders {
+        if folder.enabled {
+            rescan_library(pool, &folder.path, &mut on_progress).await?;
+        }
+    }
 
     Ok(())
 }
