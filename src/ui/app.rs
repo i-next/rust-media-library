@@ -8,6 +8,10 @@ use crate::ui::components::folders_panel::{
     FolderViewModel,
     FoldersPanel,
 };
+
+
+use crate::ui::components::media_grid::MediaGrid;
+use crate::ui::components::details_panel::DetailsPanel;
 fn format_file_size(size: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;
@@ -75,8 +79,7 @@ pub fn App() -> Element {
             }
         }
     });
-    let mut new_tag =
-        use_signal(|| String::new());
+
     let mut show_favorites =
     use_signal(|| false);
     let mut sort_mode =
@@ -84,85 +87,14 @@ pub fn App() -> Element {
 
     let mut selected_tag =
         use_signal(|| None::<String>);
-    let mut selected_existing_tag =
-        use_signal(|| String::new());
+
     let favorites_only =
     show_favorites();
-    let selected = selected_media();
-    let media_tags = use_resource(move || {
+    
 
-        let pool = pool_for_tags.clone();
 
-        let selected = selected_media();
 
-        let refresh = refresh_counter();
-
-        async move {
-
-            let _ = refresh;
-
-            match selected {
-
-                Some(media) => {
-
-                    sqlite::get_media_tags(
-                        &pool,
-                        &media.path,
-                    )
-                    .await
-                    .unwrap_or_default()
-                }
-
-                None => vec![],
-            }
-        }
-    });
-
-    let pool_for_ai =
-    pool.clone();
-
-    let ai_analysis = use_resource(move || {
-
-        let pool =
-            pool_for_ai.clone();
-
-        let selected =
-            selected_media();
-
-        let _refresh =
-            refresh_counter();
-
-        async move {
-
-            match selected {
-
-                Some(media) => {
-
-                    match sqlite::get_media_id(
-                        &pool,
-                        &media.path,
-                    )
-                    .await
-                    {
-                        Ok(Some(media_id)) => {
-
-                            sqlite::get_latest_analysis(
-                                &pool,
-                                media_id,
-                                "image_description",
-                            )
-                            .await
-                            .unwrap_or(None)
-                        }
-
-                        _ => None,
-                    }
-                }
-
-                None => None,
-            }
-        }
-    });
+    
 
     let folders = use_resource(move || {
         let pool = pool_for_folders.clone();
@@ -279,37 +211,24 @@ pub fn App() -> Element {
     let pool_for_stats =
         pool.clone();
 
-        let stats = use_resource(move || {
+    let stats = use_resource(move || {
 
-            let pool =
-                pool_for_stats.clone();
+        let pool =
+            pool_for_stats.clone();
 
-            let _refresh =
-                refresh_counter();
+        let _refresh =
+            refresh_counter();
 
-            async move {
+        async move {
 
-                sqlite::get_library_stats(&pool)
-                    .await
-                    .ok()
-            }
-        });
-    let pool_for_all_tags = pool.clone();
+            sqlite::get_library_stats(&pool)
+                .await
+                .ok()
+        }
+    });
 
-        let all_tags = use_resource(move || {
 
-            let pool = pool_for_all_tags.clone();
 
-            let _refresh =
-                refresh_counter();
-
-            async move {
-
-                sqlite::get_tags(&pool)
-                    .await
-                    .unwrap_or_default()
-            }
-        });
     let toggle_folder = Callback::new({
 
         let pool =
@@ -373,7 +292,44 @@ pub fn App() -> Element {
             });
         }
     });
+    let select_tag =
+        Callback::new({
 
+            let mut selected_tag =
+                selected_tag;
+
+            move |tag_name: String| {
+
+                selected_tag.set(
+                    Some(tag_name)
+                );
+            }
+        });
+
+    let clear_tag_filter =
+    Callback::new({
+
+        let mut selected_tag =
+            selected_tag;
+
+        move |_: ()| {
+
+            selected_tag.set(None);
+        }
+    });
+    let select_media =
+        Callback::new({
+
+            let mut selected_media =
+                selected_media;
+
+            move |media: MediaFile| {
+
+                selected_media.set(
+                    Some(media)
+                );
+            }
+        });
     rsx! {
         div {
             style: "display:flex; height:100vh;",
@@ -709,159 +665,25 @@ pub fn App() -> Element {
                                             
                                             if !medias_sorted.is_empty() {
                                                 
-                                                div {
-                                                    style: "
-                                                        display:flex;
-                                                        flex-wrap:wrap;
-                                                        gap:16px;
-                                                    ",
-                                                
-                                                    for media in medias_sorted.iter().filter(|media| {
+                                                MediaGrid {
 
-                                                        let search =
-                                                            search_text()
-                                                                .to_lowercase();
+                                                    medias:
+                                                        medias_sorted.clone(),
 
-                                                        let matches_name =
+                                                    tagged_paths:
+                                                        tagged_paths.clone(),
 
-                                                            search.is_empty()
+                                                    search_text:
+                                                        search_text(),
 
-                                                            ||
+                                                    selected_tag:
+                                                        selected_tag(),
 
-                                                            media.filename
-                                                                .to_lowercase()
-                                                                .contains(&search)
+                                                    favorites_only:
+                                                        show_favorites(),
 
-                                                            ||
-
-                                                            media.path
-                                                                .to_lowercase()
-                                                                .contains(&search)
-
-                                                            ||
-
-                                                            media.extension
-                                                                .to_lowercase()
-                                                                .contains(&search);
-
-                                                        let matches_tag =
-                                                            tagged_paths
-                                                                .contains(&media.path);
-
-                                                        let matches_search =
-                                                            matches_name
-                                                            || matches_tag;
-
-                                                        let matches_favorite =
-                                                            !show_favorites()
-                                                            || media.favorite;
-
-                                                        let matches_selected_tag =
-
-                                                            selected_tag().is_none()
-
-                                                            ||
-
-                                                            tagged_paths.contains(
-                                                                &media.path
-                                                            );
-                                                        matches_search
-                                                            &&
-                                                        matches_favorite
-                                                            &&
-                                                        matches_selected_tag
-
-
-                                                    }) {
-
-                                                        div {
-                                                            key: "{media.path}",
-
-                                                            style: "
-                                                                position:relative;
-                                                                width:220px;
-                                                                border:1px solid #444;
-                                                                border-radius:8px;
-                                                                overflow:hidden;
-                                                                cursor:pointer;
-                                                                background:#f5f5f5;
-                                                            ",
-
-                                                            onclick: {
-                                                                let media_clone = media.clone();
-
-                                                                move |_| {
-                                                                    selected_media.set(Some(media_clone.clone()));
-                                                                }
-                                                            },
-                                                            ondoubleclick: {
-                                                                let path = media.path.clone();
-
-                                                                move |_| {
-                                                                    let _ = open::that(path.clone());
-                                                                }
-                                                            },
-                                                            if media.favorite {
-
-                                                                div {
-                                                                    style: "
-                                                                        position:absolute;
-                                                                        top:8px;
-                                                                        right:8px;
-                                                                        z-index:10;
-                                                                        font-size:24px;
-                                                                        text-shadow:0 0 3px black;
-                                                                    ",
-
-                                                                    "⭐"
-                                                                }
-                                                            }
-                                                            if let Some(data_uri) = &media.thumbnail_data {
-
-                                                                img {
-                                                                    src: "{data_uri}",
-                                                                    style: "
-                                                                        width:100%;
-                                                                        height:180px;
-                                                                        object-fit:cover;
-                                                                    ",
-                                                                }
-
-                                                            } else {
-
-                                                                div {
-                                                                    style: "
-                                                                        height:180px;
-                                                                        display:flex;
-                                                                        align-items:center;
-                                                                        justify-content:center;
-                                                                        background:#ddd;
-                                                                        font-size:48px;
-                                                                    ",
-
-                                                                    if media.media_type == "image" {
-                                                                        "🖼️"
-                                                                    } else {
-                                                                        "🎬"
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            div {
-                                                                style: "padding:8px;",
-
-                                                                p {
-                                                                    style: "
-                                                                        margin:0;
-                                                                        font-size:12px;
-                                                                        word-break:break-word;
-                                                                    ",
-
-                                                                    "{media.filename}"
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                                                    on_select:
+                                                        select_media,
                                                 }
 
                                             } else {
@@ -873,710 +695,17 @@ pub fn App() -> Element {
                                         }
 
                                         // Panneau de détails
-                                        div {
-                                            style: "
-                                                width:350px;
-                                                padding:16px;
-                                                border-left:1px solid #444;
-                                                overflow:auto;
-                                            ",
+                                        DetailsPanel {
 
-                                            h2 {
-                                                "Détails"
-                                            }
-
-                                            if let Some(media) = selected {
-
-                                    h3 {
-                                        if media.favorite {
-                                            "⭐ "
+                                            media:
+                                                selected_media(),
+                                                
                                         }
-
-                                        "{media.filename}"
-                                    }
-                                    button {
-
-                                        onclick: {
-                                            let path = media.path.clone();
-                                            let pool = state.pool.clone();
-                                            let mut selected_handle = selected_media;
-                                            let mut refresh_handle =
-                                                refresh_counter;
-
-                                            let favorite =
-                                                media.favorite;
-
-                                            move |_| {
-
-                                                let path = path.clone();
-                                                let pool = pool.clone();
-
-                                                spawn(async move {
-
-                                                    if let Err(e) =
-                                                        sqlite::set_favorite(
-                                                            &pool,
-                                                            &path,
-                                                            !favorite,
-                                                        )
-                                                        .await
-                                                    {
-                                                        eprintln!(
-                                                            "Erreur favori : {}",
-                                                            e
-                                                        );
-                                                        return;
-                                                    }
-                                                    if let Some(mut current_media) =
-                                                        selected_handle()
-                                                    {
-                                                        current_media.favorite =
-                                                            !favorite;
-
-                                                        selected_handle.set(
-                                                            Some(current_media)
-                                                        );
-                                                    }
-                                                    let current =
-                                                        refresh_handle();
-
-                                                    refresh_handle.set(
-                                                        current + 1
-                                                    );
-                                                });
-                                            }
-                                        },
-
-                                        style: "
-                                            width:100%;
-                                            margin-bottom:10px;
-                                            padding:8px;
-                                        ",
-
-                                        if media.favorite {
-                                            "⭐ Retirer des favoris"
-                                        } else {
-                                            "☆ Ajouter aux favoris"
-                                        }
-                                    }
-                                    hr {}
-
-                                    button {
-
-                                        onclick: {
-
-                                            let pool =
-                                                pool.clone();
-
-                                            let path =
-                                                media.path.clone();
-
-                                            let media_type =
-                                                media.media_type.clone();
-
-                                            let mut refresh =
-                                                refresh_counter;
-
-                                            move |_| {
-
-                                                let pool =
-                                                    pool.clone();
-
-                                                let path =
-                                                    path.clone();
-
-                                                let media_type =
-                                                    media_type.clone();
-
-                                                spawn(async move {
-
-                                                    if let Err(e) =
-                                                        crate::services::ai_service
-                                                            ::analyze_and_store(
-                                                                &pool,
-                                                                &path,
-                                                                &media_type,
-                                                            )
-                                                            .await
-                                                    {
-                                                        eprintln!(
-                                                            "Erreur IA: {}",
-                                                            e
-                                                        );
-                                                    }
-
-                                                    let current =
-                                                        refresh();
-
-                                                    refresh.set(
-                                                        current + 1
-                                                    );
-                                                });
-                                            }
-                                        },
-
-                                        "🤖 Analyser"
-                                    }
-
-                                    hr {}
-
-                                    h3 {
-                                        "🤖 Analyse IA"
-                                    }
-
-                                    if let Some(Some(description)) =
-                                        &*ai_analysis.read_unchecked()
-                                    {
-                                        div {
-
-                                            style: "
-                                                margin-bottom:16px;
-                                                padding:10px;
-                                                border:1px solid #ccc;
-                                                border-radius:8px;
-                                                background:#f8f8f8;
-                                            ",
-
-                                            p {
-                                                "{description}"
-                                            }
-                                        }
-                                    }
-                                    else {
-
-                                        p {
-                                            style: "color:#888;",
-                                            "Aucune analyse IA disponible."
-                                        }
-                                    }
-
-                                    hr {}
-                                    
-                                    h3 {
-                                        "🏷️ Tags"
-                                    }
-
-                                    
-                                    if let Some(tags) =
-                                        &*media_tags.read_unchecked()
-                                    {
-                                        div {
-                                            style: "
-                                                display:flex;
-                                                flex-wrap:wrap;
-                                                gap:6px;
-                                                margin-bottom:10px;
-                                            ",
-
-                                            for tag in tags {
-
-                                                div {
-                                                    style: "
-                                                        background:#3b82f6;
-                                                        color:white;
-                                                        padding:4px 8px;
-                                                        border-radius:12px;
-                                                        display:flex;
-                                                        align-items:center;
-                                                        gap:6px;
-                                                    ",
-
-                                                    "{tag.name}"
-
-                                                    button {
-
-                                                        style: "
-                                                            border:none;
-                                                            cursor:pointer;
-                                                            background:transparent;
-                                                            color:white;
-                                                        ",
-
-                                                        onclick: {
-                                                            let pool = pool.clone();
-
-                                                            let path =
-                                                                media.path.clone();
-
-                                                            let tag_name =
-                                                                tag.name.clone();
-
-                                                            let mut refresh =
-                                                                refresh_counter;
-
-                                                            move |_| {
-
-                                                                let pool =
-                                                                    pool.clone();
-
-                                                                let path =
-                                                                    path.clone();
-
-                                                                let tag_name =
-                                                                    tag_name.clone();
-
-                                                                spawn(async move {
-
-                                                                    let _ =
-                                                                        sqlite::unassign_tag(
-                                                                            &pool,
-                                                                            &path,
-                                                                            &tag_name,
-                                                                        )
-                                                                        .await;
-
-                                                                    let current =
-                                                                        refresh();
-
-                                                                    refresh.set(
-                                                                        current + 1
-                                                                    );
-                                                                });
-                                                            }
-                                                        },
-
-                                                        "✕"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    
-
-                                    div {
-
-                                    /* input {
-
-                                        r#type: "text",
-
-                                        placeholder: "Nouveau tag",
                                         
-                                        value: "{new_tag()}",
 
-                                        oninput: move |evt| {
 
-                                            new_tag.set(
-                                                evt.value()
-                                            );
-                                        },
-                                    }
-                                    if let Some(tags) =
-                                        &*all_tags.read_unchecked()
-                                    {
-                                        select {
 
-                                            onchange: move |evt| {
-
-                                                selected_existing_tag
-                                                    .set(evt.value());
-                                            },
-
-                                            option {
-                                                value: "",
-                                                "-- Tag existant --"
-                                            }
-
-                                            for tag in tags {
-
-                                                option {
-                                                    value: "{tag.name}",
-                                                    "{tag.name}"
-                                                }
-                                            }
-                                        }
-                                    } */
-
-                                    div {
-
-    input {
-
-        r#type: "text",
-
-        placeholder: "Nouveau tag",
-
-        value: "{new_tag()}",
-
-        oninput: move |evt| {
-            new_tag.set(
-                evt.value()
-            );
-        },
-    }
-
-    button {
-
-        onclick: {
-
-            let pool = pool.clone();
-
-            let path =
-                media.path.clone();
-
-            let mut refresh =
-                refresh_counter;
-
-            let mut tag_signal =
-                new_tag;
-
-            move |_| {
-
-                let pool =
-                    pool.clone();
-
-                let path =
-                    path.clone();
-
-                let tag_name =
-                    tag_signal();
-
-                spawn(async move {
-
-                    if !tag_name
-                        .trim()
-                        .is_empty()
-                    {
-                        let _ =
-                            sqlite::assign_tag(
-                                &pool,
-                                &path,
-                                &tag_name,
-                            )
-                            .await;
-                    }
-
-                    tag_signal.set(
-                        String::new()
-                    );
-
-                    let current =
-                        refresh();
-
-                    refresh.set(
-                        current + 1
-                    );
-                });
-            }
-        },
-
-        "➕ Créer le tag"
-        }
-
-        if let Some(tags) =
-            &*all_tags.read_unchecked()
-        {
-            select {
-
-                onchange: move |evt| {
-
-                    selected_existing_tag
-                        .set(evt.value());
-                },
-
-                option {
-                    value: "",
-                    "-- Tag existant --"
-                }
-
-                for tag in tags {
-
-                    option {
-                        value: "{tag.name}",
-                        "{tag.name}"
-                    }
-                }
-            }
-        }
-
-        button {
-
-            onclick: {
-
-                let pool = pool.clone();
-
-                let path =
-                    media.path.clone();
-
-                let mut refresh =
-                    refresh_counter;
-
-                let selected_tag_signal =
-                    selected_existing_tag;
-
-                move |_| {
-
-                    let pool =
-                        pool.clone();
-
-                    let path =
-                        path.clone();
-
-                    let tag_name =
-                        selected_tag_signal();
-
-                    spawn(async move {
-
-                        println!(
-                            "Tag sélectionné = {}",
-                            tag_name
-                        );
-
-                        if !tag_name
-                            .trim()
-                            .is_empty()
-                        {
-                            let _ =
-                                sqlite::assign_tag(
-                                    &pool,
-                                    &path,
-                                    &tag_name,
-                                )
-                                .await;
-                        }
-
-                        let current =
-                            refresh();
-
-                        refresh.set(
-                            current + 1
-                        );
-                    });
-                }
-            },
-
-            "🔗 Associer le tag"
         }
     }
-
-                                    /* button {
-
-                                        onclick: {
-                                            let pool = pool.clone();
-
-                                            let path =
-                                                media.path.clone();
-
-                                            let mut refresh =
-                                                refresh_counter;
-
-                                            let mut tag_signal =
-                                                new_tag;
-
-                                            move |_| {
-
-                                                let pool =
-                                                    pool.clone();
-
-                                                let path =
-                                                    path.clone();
-
-                                                let tag_name =
-                                                    tag_signal();
-
-                                                spawn(async move {
-
-                                                    if !tag_name
-                                                        .trim()
-                                                        .is_empty()
-                                                    {
-                                                        let _ =
-                                                            sqlite::assign_tag(
-                                                                &pool,
-                                                                &path,
-                                                                &tag_name,
-                                                            )
-                                                            .await;
-                                                    }
-
-                                                    tag_signal.set(
-                                                        String::new()
-                                                    );
-
-                                                    let current =
-                                                        refresh();
-
-                                                    refresh.set(
-                                                        current + 1
-                                                    );
-                                                });
-                                            }
-                                        },
-
-                                       
-                                        button {
-
-                                            onclick: {
-
-                                                let pool = pool.clone();
-
-                                                let path =
-                                                    media.path.clone();
-
-                                                let mut refresh =
-                                                    refresh_counter;
-
-                                                let selected_tag_signal =
-                                                    selected_existing_tag;
-
-                                                move |_| {
-
-                                                    let pool =
-                                                        pool.clone();
-
-                                                    let path =
-                                                        path.clone();
-
-                                                    let tag_name =
-                                                        selected_tag_signal();
-
-                                                    spawn(async move {
-                                                        println!(
-                                                            "Tag sélectionné = {}",
-                                                            tag_name
-                                                        );
-                                                        if !tag_name.is_empty()
-                                                        {
-                                                            let _ =
-                                                                sqlite::assign_tag(
-                                                                    &pool,
-                                                                    &path,
-                                                                    &tag_name,
-                                                                )
-                                                                .await;
-                                                        }
-
-                                                        let current =
-                                                            refresh();
-
-                                                        refresh.set(
-                                                            current + 1
-                                                        );
-                                                    });
-                                                }
-                                            },
-
-                                            "Ajouter - Associer le tag"
-                                        }
-                                    } */
-                                    hr {}
-                                }
-                                    p {
-                                        strong { "Type :" }
-                                        " "
-                                        "{media.media_type}"
-                                    }
-
-                                    p {
-                                        strong { "Extension :" }
-                                        " "
-                                        "{media.extension}"
-                                    }
-
-                                    p {
-                                        strong { "Taille :" }
-                                        " "
-
-                                        if let Some(size) = media.file_size {
-                                            "{format_file_size(size)}"
-                                        } else {
-                                            "Inconnue"
-                                        }
-                                    }
-
-                                    p {
-                                        strong { "Dimensions :" }
-                                        " "
-
-                                        if let (Some(w), Some(h)) =
-                                            (media.width, media.height)
-                                        {
-                                            "{w} × {h}"
-                                        } else {
-                                            "-"
-                                        }
-                                    }
-
-                                    p {
-                                        strong { "Chemin :" }
-                                    }
-
-                                    p {
-                                        style: "
-                                            word-break:break-all;
-                                            font-size:12px;
-                                        ",
-
-                                        "{media.path}"
-                                    }
-                                    /* button {
-
-                                        onclick: {
-                                            let path = media.path.clone();
-                                            let pool = state.pool.clone();
-
-                                            move |_| {
-
-                                                let path = path.clone();
-                                                let pool = pool.clone();
-
-                                                spawn(async move {
-
-                                                    let _ =
-                                                        sqlite::set_favorite(
-                                                            &pool,
-                                                            &path,
-                                                            !media.favorite,
-                                                        )
-                                                        .await;
-                                                });
-                                            }
-                                        }, 
-
-                                        if media.favorite {
-                                            "⭐ Retirer des favoris"
-                                        } else {
-                                            "☆ Ajouter aux favoris"
-                                        }
-                                    }*/
-                                    p {
-                                        strong { "Miniature générée :" }
-                                        " "
-                                        if media.thumbnail_data.is_some() {
-                                            "Oui"
-                                        } else {
-                                            "Non"
-                                        }
-                                    }
-                                    
-                                    if let Some(data_uri) =
-                                        &media.thumbnail_data
-                                    {
-                                        img {
-                                            src: "{data_uri}",
-                                        }
-                                    }
-
-                                    if media.media_type == "video" {
-
-                                        p {
-                                            strong { "Durée :" }
-                                            " "
-
-                                            if let Some(duration) = media.duration {
-                                                "{format_duration(duration)}"
-                                            } else {
-                                                "Inconnue"
-                                            }
-                                        }
-                                    }
-
-                                } else {
-
-                                    p {
-                                        "Sélectionne une miniature."
-                                    }
-                                }
-                                            }
-                                        }
-                                    }
 }
+

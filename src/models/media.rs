@@ -1,4 +1,4 @@
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MediaFile {
     pub path: String,
     pub filename: String,
