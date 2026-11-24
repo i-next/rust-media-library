@@ -50,7 +50,8 @@ fn create_media(path: &Path) -> Option<MediaFile> {
     } else {
         return None;
     };
-
+    println!("MEDIA TROUVÉ : {}", path.display());
+    println!("TYPE : {}", media_type);
     let filename = path.file_name()?.to_string_lossy().to_string();
 
     if filename.trim().is_empty() {

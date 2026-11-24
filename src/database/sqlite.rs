@@ -7,7 +7,9 @@ use sqlx::{SqlitePool, migrate::Migrator, sqlite::SqlitePoolOptions};
 use std::fs;
 use crate::models::tag::TagCount;
 use crate::models::library_stats::LibraryStats;
-
+use crate::services::ai_service::is_allowed_tag;
+use crate::services::ai_service::normalize_tag;
+use std::collections::HashSet;
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub async fn init_database() -> Result<SqlitePool> {
@@ -41,6 +43,7 @@ pub async fn init_database() -> Result<SqlitePool> {
     Ok(pool)
 }
 pub async fn insert_media(pool: &SqlitePool, media: &MediaFile) -> Result<()> {
+    
     sqlx::query(
         r#"
         INSERT OR IGNORE INTO media (
@@ -65,6 +68,7 @@ pub async fn insert_media(pool: &SqlitePool, media: &MediaFile) -> Result<()> {
     .bind(media.width.map(|v| v as i64))
     .bind(media.height.map(|v| v as i64))
     .bind(media.duration)
+    .bind(media.favorite)
     .execute(pool)
     .await?;
     sqlx::query(
@@ -862,4 +866,126 @@ pub async fn get_library_stats(
         total_tags,
         total_size,
     })
+}
+
+pub async fn save_ai_analysis(
+    pool: &SqlitePool,
+
+    media_id: i64,
+
+    model_name: &str,
+
+    analysis_type: &str,
+
+    result_text: &str,
+
+    raw_json: Option<&str>,
+) -> Result<()> {
+
+    sqlx::query(
+        r#"
+        INSERT INTO ai_analysis (
+            media_id,
+            model_name,
+            analysis_type,
+            result_text,
+            raw_json
+        )
+        VALUES (?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(media_id)
+    .bind(model_name)
+    .bind(analysis_type)
+    .bind(result_text)
+    .bind(raw_json)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+pub async fn get_latest_analysis(
+    pool: &SqlitePool,
+
+    media_id: i64,
+
+    analysis_type: &str,
+) -> Result<Option<String>> {
+
+    let result =
+        sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT result_text
+            FROM ai_analysis
+            WHERE media_id = ?
+              AND analysis_type = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#
+        )
+        .bind(media_id)
+        .bind(analysis_type)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(result)
+}
+pub async fn get_media_id(
+    pool: &SqlitePool,
+    path: &str,
+) -> Result<Option<i64>> {
+
+    let id =
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM media
+            WHERE path = ?
+            "#
+        )
+        .bind(path)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(id)
+}
+pub async fn apply_ai_tags(
+    pool: &SqlitePool,
+    media_path: &str,
+    tags: &[String],
+) -> Result<()> {
+
+    let mut unique =
+    HashSet::new();
+
+for tag in tags {
+
+    let clean_tag =
+        normalize_tag(tag);
+
+    if clean_tag.is_empty() {
+        continue;
+    }
+
+    if !is_allowed_tag(
+        &clean_tag
+    ) {
+        continue;
+    }
+
+    if !unique.insert(
+        clean_tag.clone()
+    ) {
+        continue;
+    }
+
+    assign_tag(
+        pool,
+        media_path,
+        &clean_tag,
+    )
+    .await?;
+}
+
+    Ok(())
 }

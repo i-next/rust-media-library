@@ -1,26 +1,55 @@
 use anyhow::Result;
 use image::imageops::FilterType;
-use std::fs;
 use std::path::Path;
 
-pub fn generate_thumbnail(image_path: &str) -> Result<String> {
-    fs::create_dir_all("storage/thumbnails")?;
+use crate::services::storage_service;
 
-    let source = Path::new(image_path);
+pub fn generate_thumbnail(
+    image_path: &str,
+) -> Result<String> {
 
-    let filename = source.file_stem().unwrap_or_default().to_string_lossy();
+    let source =
+        Path::new(image_path);
 
-    let thumbnail_path = format!("storage/thumbnails/{}.jpg", filename);
+    let thumbnail_path =
+        storage_service::image_thumbnail_path(
+            image_path
+    );
+    storage_service::ensure_parent(
+        &thumbnail_path
+    )?;
 
-    if Path::new(&thumbnail_path).exists() {
-        return Ok(thumbnail_path);
+    if thumbnail_path.exists() {
+
+        return Ok(
+            thumbnail_path
+                .to_string_lossy()
+                .to_string()
+        );
     }
 
-    let img = image::open(source)?;
+    let img =
+        image::open(source)?;
 
-    let thumb = img.resize(256, 256, FilterType::Lanczos3);
+    let thumb =
+        img.resize(
+            256,
+            256,
+            FilterType::Lanczos3
+        );
 
-    thumb.save(&thumbnail_path)?;
-    println!("Miniature enregistrée : {}", thumbnail_path);
-    Ok(thumbnail_path)
+    thumb.save(
+        &thumbnail_path
+    )?;
+
+    println!(
+        "Miniature enregistrée : {}",
+        thumbnail_path.display()
+    );
+
+    Ok(
+        thumbnail_path
+            .to_string_lossy()
+            .to_string()
+    )
 }

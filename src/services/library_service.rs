@@ -42,6 +42,8 @@ pub async fn rescan_library(
             }
         }
         if media.media_type == "video" {
+            println!("AVANT THUMB");
+
             match crate::services::video_thumbnails::generate_video_thumbnail(&media.path) {
                 Ok(thumbnail_path) => {
                     sqlite::update_thumbnail(pool, &media.path, &thumbnail_path).await?;

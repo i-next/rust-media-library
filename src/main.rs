@@ -57,6 +57,11 @@ fn main() {
             .await
             .unwrap();
     });
+    services::storage_service
+        ::ensure_storage_layout()
+        .expect(
+            "Impossible d'initialiser le stockage"
+    );
 
     dioxus::LaunchBuilder::desktop()
         .with_context(app_state)

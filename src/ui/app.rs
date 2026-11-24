@@ -2,6 +2,12 @@ use dioxus::prelude::*;
 
 use crate::services::library_service;
 use crate::{app_state::AppState, database::sqlite};
+
+use crate::ui::components::statistics_panel::StatisticsPanel;
+use crate::ui::components::folders_panel::{
+    FolderViewModel,
+    FoldersPanel,
+};
 fn format_file_size(size: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;
@@ -111,6 +117,53 @@ pub fn App() -> Element {
             }
         }
     });
+
+    let pool_for_ai =
+    pool.clone();
+
+    let ai_analysis = use_resource(move || {
+
+        let pool =
+            pool_for_ai.clone();
+
+        let selected =
+            selected_media();
+
+        let _refresh =
+            refresh_counter();
+
+        async move {
+
+            match selected {
+
+                Some(media) => {
+
+                    match sqlite::get_media_id(
+                        &pool,
+                        &media.path,
+                    )
+                    .await
+                    {
+                        Ok(Some(media_id)) => {
+
+                            sqlite::get_latest_analysis(
+                                &pool,
+                                media_id,
+                                "image_description",
+                            )
+                            .await
+                            .unwrap_or(None)
+                        }
+
+                        _ => None,
+                    }
+                }
+
+                None => None,
+            }
+        }
+    });
+
     let folders = use_resource(move || {
         let pool = pool_for_folders.clone();
 
@@ -257,6 +310,70 @@ pub fn App() -> Element {
                     .unwrap_or_default()
             }
         });
+    let toggle_folder = Callback::new({
+
+        let pool =
+            pool_for_rescan.clone();
+
+        let mut refresh =
+            refresh_counter;
+
+        move |(path, checked): (String, bool)| {
+
+            let pool =
+                pool.clone();
+
+            spawn(async move {
+
+                let _ =
+                    sqlite::set_folder_enabled(
+                        &pool,
+                        &path,
+                        checked,
+                    )
+                    .await;
+
+                let current =
+                    refresh();
+
+                refresh.set(
+                    current + 1
+                );
+            });
+        }
+    });
+    let delete_folder = Callback::new({
+
+        let pool =
+            pool_for_rescan.clone();
+
+        let mut refresh =
+            refresh_counter;
+
+        move |path: String| {
+
+            let pool =
+                pool.clone();
+
+            spawn(async move {
+
+                let _ =
+                    sqlite::remove_folder(
+                        &pool,
+                        &path,
+                    )
+                    .await;
+
+                let current =
+                    refresh();
+
+                refresh.set(
+                    current + 1
+                );
+            });
+        }
+    });
+
     rsx! {
         div {
             style: "display:flex; height:100vh;",
@@ -426,41 +543,25 @@ pub fn App() -> Element {
                                                 if let Some(Some(stats)) =
                                                     &*stats.read_unchecked()
                                                 {
-                                                    div {
-                                                        style: "
-                                                            margin-bottom:20px;
-                                                            padding:10px;
-                                                            border:1px solid #ccc;
-                                                            border-radius:8px;
-                                                        ",
+                                                    StatisticsPanel {
 
-                                                        h3 {
-                                                            "📊 Bibliothèque"
-                                                        }
+                                                        total_media:
+                                                            stats.total_media,
 
-                                                        p {
-                                                            "Médias : {stats.total_media}"
-                                                        }
+                                                        total_images:
+                                                            stats.total_images,
 
-                                                        p {
-                                                            "Images : {stats.total_images}"
-                                                        }
+                                                        total_videos:
+                                                            stats.total_videos,
 
-                                                        p {
-                                                            "Vidéos : {stats.total_videos}"
-                                                        }
+                                                        total_favorites:
+                                                            stats.total_favorites,
 
-                                                        p {
-                                                            "Favoris : {stats.total_favorites}"
-                                                        }
+                                                        total_tags:
+                                                            stats.total_tags,
 
-                                                        p {
-                                                            "Tags : {stats.total_tags}"
-                                                        }
-
-                                                        p {
-                                                            "Taille totale : {format_file_size(stats.total_size as u64)}"
-                                                        }
+                                                        total_size:
+                                                            stats.total_size,
                                                     }
                                                 }
                                                     h3 {
@@ -510,158 +611,33 @@ pub fn App() -> Element {
                                                 }
                                             }
                                             p { "Médias présents dans SQLite :" }
-                                            if let Some(folder_list) = &*folders.read_unchecked() {
+                                            if let Some(folder_list)
+                                                = &*folders.read_unchecked()
+                                            {
+                                                FoldersPanel {
 
-                                                div {
-                                                    style: "
-                                            margin-bottom:20px;
-                                            padding:10px;
-                                            border:1px solid #ccc;
-                                            border-radius:8px;
-                                        ",
+                                                    folders: folder_list
+                                                        .iter()
+                                                        .map(|f| FolderViewModel {
 
-                                                    h3 {
-                                                        "📂 Dossiers surveillés"
-                                                    }
+                                                            path:
+                                                                f.path.clone(),
 
-                                                    for folder in folder_list {
+                                                            enabled:
+                                                                f.enabled,
 
-                                                        div {
-                                                            style: "
-                                                    display:flex;
-                                                    justify-content:space-between;
-                                                    align-items:center;
-                                                    margin-bottom:4px;
-                                                ",
+                                                            media_count:
+                                                                f.media_count,
+                                                        })
+                                                        .collect(),
 
-                                                            div {
-                                                                style: "
-                                                            display:flex;
-                                                            align-items:center;
-                                                            gap:8px;
-                                                        ",
+                                                    on_toggle:
+                                                        toggle_folder,
 
-                                                                input {
-                                                                    r#type: "checkbox",
-
-                                                                    checked: folder.enabled,
-
-                                                                    onchange: {
-                                                                        let path = folder.path.clone();
-                                                                        let pool = pool_for_rescan.clone();
-
-                                                                        let mut refresh_handle =
-                                                                            refresh_counter;
-
-                                                                        move |evt: FormEvent| {
-
-                                                                            let checked =
-                                                                                evt.checked();
-
-                                                                            let path = path.clone();
-                                                                            let pool = pool.clone();
-
-                                                                            spawn(async move {
-
-                                                                    let _ =
-                                                                        sqlite::set_folder_enabled(
-                                                                            &pool,
-                                                                            &path,
-                                                                            checked,
-                                                                        )
-                                                                        .await;
-
-                                                                    let current =
-                                                                        refresh_handle();
-
-                                                                    refresh_handle.set(current + 1);
-                                                                });
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                span {
-                                                                    "{folder.path}"
-                                                                }
-                                                                span {
-                                                                    style: "
-                                                                        color:#666;
-                                                                        font-size:12px;
-                                                                        margin-left:6px;
-                                                                    ",
-
-                                                                    "({folder.media_count})"
-                                                                }
-                                                            }
-
-                                                            button {
-
-                                                                onclick: {
-                                                                    let folder_path = folder.path.clone();
-                                                                    let pool = pool_for_rescan.clone();
-
-                                                                    let mut refresh_handle = refresh_counter;
-                                                                    let _handle =
-                                                                        selected_media;
-                                                                    move |_| {
-
-                                                                        let folder_path = folder_path.clone();
-                                                                        let pool = pool.clone();
-
-                                                                        spawn(async move {
-
-                                                                            println!(
-                                                                                "Suppression dossier : {}",
-                                                                                folder_path
-                                                                            );
-
-                                                                            match sqlite::remove_folder(
-                                                                                &pool,
-                                                                                &folder_path,
-                                                                            )
-                                                                            .await
-                                                                            {
-                                                                                Ok(_) => {
-                                                                                    println!("Dossier supprimé");
-                                                                                    let folders =
-                                                                                        sqlite::get_folders(&pool)
-                                                                                            .await
-                                                                                            .unwrap_or_default();
-
-                                                                                    println!(
-                                                                                        "Dossiers restants : {:?}",
-                                                                                        folders
-                                                                                    );
-                                                                                }
-
-                                                                                Err(e) => {
-                                                                                    eprintln!(
-                                                                                        "Erreur suppression : {}",
-                                                                                        e
-                                                                                    );
-                                                                                }
-                                                                            }
-
-                                                                            let current = refresh_handle();
-                                                                            refresh_handle.set(current + 1);
-                                                                        });
-                                                                    }
-                                                                },
-
-                                                                style: "
-                                                                    cursor:pointer;
-                                                                    background:#cc4444;
-                                                                    color:white;
-                                                                    border:none;
-                                                                    border-radius:4px;
-                                                                    padding:4px 8px;
-                                                                ",
-
-                                                                "❌"
-                                                            }
-                                                        }
-                                                    }
+                                                    on_delete:
+                                                        delete_folder,
                                                 }
+
                                             }
                                             select {
 
@@ -985,6 +961,97 @@ pub fn App() -> Element {
                                     }
                                     hr {}
 
+                                    button {
+
+                                        onclick: {
+
+                                            let pool =
+                                                pool.clone();
+
+                                            let path =
+                                                media.path.clone();
+
+                                            let media_type =
+                                                media.media_type.clone();
+
+                                            let mut refresh =
+                                                refresh_counter;
+
+                                            move |_| {
+
+                                                let pool =
+                                                    pool.clone();
+
+                                                let path =
+                                                    path.clone();
+
+                                                let media_type =
+                                                    media_type.clone();
+
+                                                spawn(async move {
+
+                                                    if let Err(e) =
+                                                        crate::services::ai_service
+                                                            ::analyze_and_store(
+                                                                &pool,
+                                                                &path,
+                                                                &media_type,
+                                                            )
+                                                            .await
+                                                    {
+                                                        eprintln!(
+                                                            "Erreur IA: {}",
+                                                            e
+                                                        );
+                                                    }
+
+                                                    let current =
+                                                        refresh();
+
+                                                    refresh.set(
+                                                        current + 1
+                                                    );
+                                                });
+                                            }
+                                        },
+
+                                        "🤖 Analyser"
+                                    }
+
+                                    hr {}
+
+                                    h3 {
+                                        "🤖 Analyse IA"
+                                    }
+
+                                    if let Some(Some(description)) =
+                                        &*ai_analysis.read_unchecked()
+                                    {
+                                        div {
+
+                                            style: "
+                                                margin-bottom:16px;
+                                                padding:10px;
+                                                border:1px solid #ccc;
+                                                border-radius:8px;
+                                                background:#f8f8f8;
+                                            ",
+
+                                            p {
+                                                "{description}"
+                                            }
+                                        }
+                                    }
+                                    else {
+
+                                        p {
+                                            style: "color:#888;",
+                                            "Aucune analyse IA disponible."
+                                        }
+                                    }
+
+                                    hr {}
+                                    
                                     h3 {
                                         "🏷️ Tags"
                                     }

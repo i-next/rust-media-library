@@ -24,3 +24,8 @@ image = "0.25.x"
 base64 = "0.23.1"
 open = "5.4.5"
 rfd = "0.18.0"
+
+
+reqwest = { version = "0.12", features = ["json"] }
+
+sha2 = "0.10"

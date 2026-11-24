@@ -1,32 +1,76 @@
-use anyhow::{Result, anyhow};
-use std::fs;
+// src/services/video_thumbnails.rs
+
+use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::Command;
 
-pub fn generate_video_thumbnail(video_path: &str) -> Result<String> {
-    fs::create_dir_all("storage/thumbnails")?;
+use crate::services::storage_service;
 
-    let source = Path::new(video_path);
+pub fn generate_video_thumbnail(
+    video_path: &str,
+) -> Result<String> {
+    println!(
+        "Génération miniature vidéo : {}",
+        video_path
+    );
 
-    let filename = source
-        .file_stem()
-        .ok_or_else(|| anyhow!("Nom de fichier invalide"))?
-        .to_string_lossy();
+    let source =
+        Path::new(video_path);
 
-    let thumbnail_path = format!("storage/thumbnails/{}.jpg", filename);
-
-    if Path::new(&thumbnail_path).exists() {
-        return Ok(thumbnail_path);
+    if !source.exists() {
+        bail!(
+            "Vidéo introuvable : {}",
+            video_path
+        );
     }
 
-    let output = Command::new("ffmpeg")
-        .args(["-y", "-ss", "00:00:03", "-i", video_path, "-frames:v", "1"])
+    let thumbnail_path =
+        storage_service::video_thumbnail_path(
+            video_path
+        );
+
+    storage_service::ensure_parent(
+        &thumbnail_path
+        )?;
+
+    if thumbnail_path.exists() {
+
+        return Ok(
+            thumbnail_path
+                .to_string_lossy()
+                .to_string()
+        );
+    }
+
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            video_path,
+            "-ss",
+            "00:00:01",
+            "-vframes",
+            "1",
+        ])
         .arg(&thumbnail_path)
-        .output()?;
+        .status()?;
 
-    if !output.status.success() {
-        return Err(anyhow!("ffmpeg a échoué"));
+    if !status.success() {
+
+        bail!(
+            "FFmpeg a échoué pour : {}",
+            video_path
+        );
     }
 
-    Ok(thumbnail_path)
+    println!(
+        "Miniature vidéo enregistrée : {}",
+        thumbnail_path.display()
+    );
+
+    Ok(
+        thumbnail_path
+            .to_string_lossy()
+            .to_string()
+    )
 }
