@@ -3,16 +3,19 @@ use dioxus::prelude::*;
 use crate::services::library_service;
 use crate::{app_state::AppState, database::sqlite};
 
-use crate::ui::components::statistics_panel::StatisticsPanel;
+/* use crate::ui::components::statistics_panel::StatisticsPanel; */
 use crate::ui::components::folders_panel::{
     FolderViewModel,
     FoldersPanel,
 };
 
-
+use crate::ui::components::tags_panel::{
+    TagViewModel,
+    TagsPanel,
+};
 use crate::ui::components::media_grid::MediaGrid;
 use crate::ui::components::details_panel::DetailsPanel;
-fn format_file_size(size: u64) -> String {
+/* fn format_file_size(size: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;
     const GB: f64 = MB * 1024.0;
@@ -28,9 +31,9 @@ fn format_file_size(size: u64) -> String {
     } else {
         format!("{} octets", size)
     }
-}
+} */
 
-fn format_duration(seconds: f64) -> String {
+/* fn format_duration(seconds: f64) -> String {
     let total = seconds.round() as u64;
 
     let h = total / 3600;
@@ -42,7 +45,7 @@ fn format_duration(seconds: f64) -> String {
     } else {
         format!("{m:02}:{s:02}")
     }
-}
+} */
 
 #[component]
 pub fn App() -> Element {
@@ -50,9 +53,9 @@ pub fn App() -> Element {
     let mut search_text = use_signal(String::new);
     use crate::models::media::MediaFile;
 
-    let mut selected_media = use_signal(|| None::<MediaFile>);
+    let selected_media = use_signal(|| None::<MediaFile>);
     let pool = state.pool.clone();
-    let pool_for_tags = pool.clone();
+
 
     let scan_progress = use_signal(|| (0usize, 0usize));
     let refresh_counter = use_signal(|| 0u64);
@@ -85,16 +88,8 @@ pub fn App() -> Element {
     let mut sort_mode =
         use_signal(|| "name".to_string());
 
-    let mut selected_tag =
+    let selected_tag =
         use_signal(|| None::<String>);
-
-    let favorites_only =
-    show_favorites();
-    
-
-
-
-    
 
     let folders = use_resource(move || {
         let pool = pool_for_folders.clone();
@@ -136,13 +131,7 @@ pub fn App() -> Element {
             .cloned()
             .unwrap_or_default();
 
-    let mut medias_sorted = if let Some(list) =
-        &*medias.read_unchecked()
-    {
-        list.clone()
-    } else {
-        Vec::new()
-    };
+
 
     let medias_sorted = if let Some(list) = &*medias.read_unchecked() {
         
@@ -208,10 +197,10 @@ pub fn App() -> Element {
                 .unwrap_or_default()
         }
     });
-    let pool_for_stats =
-        pool.clone();
+    /* let pool_for_stats =
+        pool.clone(); */
 
-    let stats = use_resource(move || {
+/*     let stats = use_resource(move || {
 
         let pool =
             pool_for_stats.clone();
@@ -225,7 +214,7 @@ pub fn App() -> Element {
                 .await
                 .ok()
         }
-    });
+    }); */
 
 
 
@@ -292,6 +281,21 @@ pub fn App() -> Element {
             });
         }
     });
+
+    let select_media =
+        Callback::new({
+
+            let mut selected_media =
+                selected_media;
+
+            move |media: MediaFile| {
+
+                selected_media.set(
+                    Some(media)
+                );
+            }
+        });
+
     let select_tag =
         Callback::new({
 
@@ -307,29 +311,331 @@ pub fn App() -> Element {
         });
 
     let clear_tag_filter =
-    Callback::new({
-
-        let mut selected_tag =
-            selected_tag;
-
-        move |_: ()| {
-
-            selected_tag.set(None);
-        }
-    });
-    let select_media =
         Callback::new({
 
-            let mut selected_media =
-                selected_media;
+            let mut selected_tag =
+                selected_tag;
 
-            move |media: MediaFile| {
+            move |_: ()| {
 
-                selected_media.set(
-                    Some(media)
-                );
+                selected_tag.set(None);
             }
         });
+        let pool_for_media_tags =
+            pool.clone();
+
+        let media_tags = use_resource(move || {
+
+            let pool =
+             pool_for_media_tags.clone();
+
+            let selected = selected_media();
+
+            let refresh = refresh_counter();
+
+            async move {
+
+                let _ = refresh;
+
+                match selected {
+
+                    Some(media) => {
+
+                        sqlite::get_media_tags(
+                            &pool,
+                            &media.path,
+                        )
+                        .await
+                        .unwrap_or_default()
+                    }
+
+                    None => vec![],
+                }
+            }
+        });
+
+    let toggle_favorite =
+    Callback::new({
+
+        let pool =
+            state.pool.clone();
+
+        let mut refresh =
+            refresh_counter;
+
+        let mut selected_media_signal =
+            selected_media;
+
+        move |path: String| {
+
+            let pool =
+                pool.clone();
+
+            spawn(async move {
+
+                let current_media =
+                    selected_media_signal();
+
+                if let Some(media) =
+                    current_media.clone()
+                {
+                    let new_value =
+                        !media.favorite;
+
+                    let _ =
+                        sqlite::set_favorite(
+                            &pool,
+                            &path,
+                            new_value,
+                        )
+                        .await;
+
+                    let mut updated =
+                        media.clone();
+
+                    updated.favorite =
+                        new_value;
+
+                    selected_media_signal
+                        .set(Some(updated));
+
+                    let current =
+                        refresh();
+
+                    refresh.set(
+                        current + 1
+                    );
+                }
+            });
+        }
+    });
+    let current_tags: Vec<String> =
+        media_tags
+            .read_unchecked()
+            .as_ref()
+            .map(|tags| {
+                tags.iter()
+                    .map(|tag| tag.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+    let pool_for_all_tags =
+        pool.clone();
+
+    let pool_for_all_tags =
+        pool.clone();
+
+
+
+    let all_tags = use_resource(move || {
+
+        let pool =
+            pool_for_all_tags.clone();
+
+        let _refresh =
+            refresh_counter();
+
+        async move {
+
+            sqlite::get_tags(&pool)
+                .await
+                .unwrap_or_default()
+        }
+    });
+
+    let current_all_tags: Vec<String> =
+        all_tags
+            .read_unchecked()
+            .as_ref()
+            .map(|tags| {
+                tags.iter()
+                    .map(|tag| tag.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+    
+    let add_tag =
+        Callback::new({
+
+            let pool =
+                pool.clone();
+
+            let mut refresh =
+                refresh_counter;
+
+            let selected_media_signal =
+                selected_media;
+
+            move |tag_name: String| {
+
+                let pool =
+                    pool.clone();
+
+                let selected =
+                    selected_media_signal();
+
+                spawn(async move {
+
+                    if let Some(media) = selected {
+
+                        let _ =
+                            sqlite::assign_tag(
+                                &pool,
+                                &media.path,
+                                &tag_name,
+                            )
+                            .await;
+
+                        let current =
+                            refresh();
+
+                        refresh.set(
+                            current + 1
+                        );
+                    }
+                });
+            }
+        });
+       
+    let assign_tag =
+        Callback::new({
+
+            let pool =
+                pool.clone();
+
+            let mut refresh =
+                refresh_counter;
+
+            let selected_media_signal =
+                selected_media;
+
+            move |tag_name: String| {
+
+                let pool =
+                    pool.clone();
+
+                let selected =
+                    selected_media_signal();
+
+                spawn(async move {
+
+                    if let Some(media) = selected {
+
+                        let _ =
+                            sqlite::assign_tag(
+                                &pool,
+                                &media.path,
+                                &tag_name,
+                            )
+                            .await;
+
+                        let current =
+                            refresh();
+
+                        refresh.set(
+                            current + 1
+                        );
+                    }
+                });
+            }
+        });
+
+    let remove_tag =
+        Callback::new({
+
+            let pool =
+                pool.clone();
+
+            let mut refresh =
+                refresh_counter;
+
+            let selected_media_signal =
+                selected_media;
+
+            move |tag_name: String| {
+
+                let pool =
+                    pool.clone();
+
+                let selected =
+                    selected_media_signal();
+
+                spawn(async move {
+
+                    if let Some(media) = selected {
+
+                        let _ =
+                            sqlite::unassign_tag(
+                                &pool,
+                                &media.path,
+                                &tag_name,
+                            )
+                            .await;
+
+                        let current =
+                            refresh();
+
+                        refresh.set(
+                            current + 1
+                        );
+                    }
+                });
+            }
+        });
+    let pool_for_ai =
+        pool.clone();
+
+    let ai_analysis = use_resource(move || {
+
+        let pool =
+            pool_for_ai.clone();
+
+        let selected =
+            selected_media();
+
+        let _refresh =
+            refresh_counter();
+
+        async move {
+
+            match selected {
+
+                Some(media) => {
+
+                    match sqlite::get_media_id(
+                        &pool,
+                        &media.path,
+                    )
+                    .await
+                    {
+                        Ok(Some(media_id)) => {
+
+                            sqlite::get_latest_analysis(
+                                &pool,
+                                media_id,
+                                "image_description",
+                            )
+                            .await
+                            .unwrap_or(None)
+                        }
+
+                        _ => None,
+                    }
+                }
+
+                None => None,
+            }
+        }
+    });
+
+    let current_analysis =
+        ai_analysis
+            .read_unchecked()
+            .as_ref()
+            .cloned()
+            .unwrap_or(None);
+
     rsx! {
         div {
             style: "display:flex; height:100vh;",
@@ -460,12 +766,12 @@ pub fn App() -> Element {
 
                                                 div {
                                                     style: "
-                                        margin-top:10px;
-                                        margin-bottom:20px;
-                                        padding:10px;
-                                        border:1px solid #ccc;
-                                        border-radius:8px;
-                                    ",
+                                                        margin-top:10px;
+                                                        margin-bottom:20px;
+                                                        padding:10px;
+                                                        border:1px solid #ccc;
+                                                        border-radius:8px;
+                                                    ",
 
                                                     p {
                                                         "🔄 Scan en cours..."
@@ -489,81 +795,28 @@ pub fn App() -> Element {
                                           if let Some(tags) =
                                                 &*tags_panel.read_unchecked()
                                             {
-                                                div {
-                                                    style: "
-                                                        margin-bottom:20px;
-                                                        padding:10px;
-                                                        border:1px solid #ccc;
-                                                        border-radius:8px;
-                                                    ",
-                                                if let Some(Some(stats)) =
-                                                    &*stats.read_unchecked()
-                                                {
-                                                    StatisticsPanel {
+                                                TagsPanel {
 
-                                                        total_media:
-                                                            stats.total_media,
+                                                    tags: tags
+                                                        .iter()
+                                                        .map(|tag| TagViewModel {
 
-                                                        total_images:
-                                                            stats.total_images,
+                                                            name:
+                                                                tag.name.clone(),
 
-                                                        total_videos:
-                                                            stats.total_videos,
+                                                            count:
+                                                                tag.count,
+                                                        })
+                                                        .collect(),
 
-                                                        total_favorites:
-                                                            stats.total_favorites,
+                                                    selected_tag:
+                                                        selected_tag(),
 
-                                                        total_tags:
-                                                            stats.total_tags,
+                                                    on_select:
+                                                        select_tag,
 
-                                                        total_size:
-                                                            stats.total_size,
-                                                    }
-                                                }
-                                                    h3 {
-                                                        "🏷️ Tags"
-                                                    }
-
-                                                    for tag in tags {
-
-                                                        div {
-
-                                                            style: "
-                                                                cursor:pointer;
-                                                                padding:4px;
-                                                            ",
-
-                                                            onclick: {
-                                                                let tag_name =
-                                                                    tag.name.clone();
-                                                                println!(
-                                                                        "Tag sélectionné = {:?}",
-                                                                        selected_tag()
-                                                                    );
-                                                                    println!(
-    "Paths trouvés = {}",
-    tagged_paths.len()
-);
-                                                                move |_| {
-                                                                   
-                                                                    selected_tag.set(
-                                                                        Some(tag_name.clone())
-                                                                    );
-                                                                }
-                                                            },
-
-                                                            "{tag.name} ({tag.count})"
-                                                        }
-                                                    }
-
-                                                    button {
-
-                                                        onclick: move |_| {
-                                                            selected_tag.set(None);
-                                                        },
-
-                                                        "Effacer filtre"
-                                                    }
+                                                    on_clear:
+                                                        clear_tag_filter,
                                                 }
                                             }
                                             p { "Médias présents dans SQLite :" }
@@ -697,9 +950,26 @@ pub fn App() -> Element {
                                         // Panneau de détails
                                         DetailsPanel {
 
-                                            media:
+                                             media:
                                                 selected_media(),
-                                                
+
+                                            media_tags:
+                                                current_tags,
+
+                                            all_tags:
+                                                current_all_tags,
+
+                                            on_toggle_favorite:
+                                                toggle_favorite,
+
+                                            on_add_tag:
+                                                add_tag,
+
+                                            on_assign_tag:
+                                                assign_tag,
+
+                                            on_remove_tag:
+                                                remove_tag,
                                         }
                                         
 

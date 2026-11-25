@@ -114,7 +114,7 @@ pub async fn media_count(pool: &SqlitePool) -> Result<i64> {
 
     Ok(count)
 }
-pub async fn get_all_media(pool: &SqlitePool) -> Result<Vec<MediaFile>> {
+/* pub async fn get_all_media(pool: &SqlitePool) -> Result<Vec<MediaFile>> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -187,7 +187,7 @@ pub async fn get_all_media(pool: &SqlitePool) -> Result<Vec<MediaFile>> {
             }
         })
         .collect())
-}
+} */
 
 pub async fn update_thumbnail(
     pool: &SqlitePool,
@@ -716,7 +716,7 @@ pub async fn get_media_tags(
             .collect()
     )
 }
-pub async fn delete_tag(
+/* pub async fn delete_tag(
     pool: &SqlitePool,
     tag_id: i64,
 ) -> Result<()> {
@@ -729,9 +729,9 @@ pub async fn delete_tag(
     .await?;
 
     Ok(())
-}
+} */
 
-pub async fn media_has_tag(
+/* pub async fn media_has_tag(
     pool: &SqlitePool,
     media_path: &str,
     search: &str,
@@ -758,7 +758,7 @@ pub async fn media_has_tag(
         .await?;
 
     Ok(count > 0)
-}
+} */
 pub async fn search_media_paths_by_tag(
     pool: &SqlitePool,
     search: &str,
